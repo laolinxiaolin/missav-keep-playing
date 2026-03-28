@@ -1,26 +1,37 @@
-// Missav Keep Playing - Prevents video auto-pause on missav.ai when tab loses focus
-// Injected at document_start to intercept before site scripts run
+// This script runs in the MAIN world (same context as the page)
+// to properly intercept window.player.pause() and event listeners
 
 (function () {
   "use strict";
 
   // ============================================
-  // METHOD 1: Block visibility/blur event listeners entirely
-  // Prevent the site from ever registering handlers for these events
+  // METHOD 1: Block visibility/blur event listeners
+  // Override addEventListener on document and window to prevent the site
+  // from ever registering these handlers
   // ============================================
-  const blockedEvents = new Set(["blur", "visibilitychange", "focusout", "pagehide"]);
+  const blockedEvents = new Set(["visibilitychange", "blur", "focusout", "pagehide"]);
 
-  const originalAddEventListener = EventTarget.prototype.addEventListener;
-  EventTarget.prototype.addEventListener = function (type, listener, options) {
+  const originalDocAddEventListener = document.addEventListener.bind(document);
+  const originalWinAddEventListener = window.addEventListener.bind(window);
+
+  document.addEventListener = function (type, listener, options) {
     if (blockedEvents.has(type)) {
-      console.log(`[Missav Keep Playing] Blocked "${type}" event listener.`);
+      console.log("[Missav Keep Playing] Blocked document listener for:", type);
       return;
     }
-    return originalAddEventListener.call(this, type, listener, options);
+    return originalDocAddEventListener(type, listener, options);
   };
 
-  // Also block capture-phase listeners via document/window directly as a safety net
-  ["blur", "visibilitychange", "focusout", "pagehide"].forEach(function (eventType) {
+  window.addEventListener = function (type, listener, options) {
+    if (blockedEvents.has(type)) {
+      console.log("[Missav Keep Playing] Blocked window listener for:", type);
+      return;
+    }
+    return originalWinAddEventListener(type, listener, options);
+  };
+
+  // Safety net: also block capture-phase events
+  blockedEvents.forEach(function (eventType) {
     window.addEventListener(
       eventType,
       function (e) {
@@ -51,9 +62,7 @@
       writable: false,
       configurable: true,
     });
-  } catch (e) {
-    // Some browsers may not allow redefining these
-  }
+  } catch (e) {}
 
   // ============================================
   // METHOD 3: Override document.hasFocus()
@@ -66,101 +75,60 @@
 
   // ============================================
   // METHOD 4: Override window.player.pause() (DPlayer)
-  // This is the main mechanism missav uses to pause playback
+  // The key fix: only allow pause when user explicitly toggles play
+  // Check stack trace for togglePlay (user click) vs auto-pause (visibility change)
   // ============================================
+  function getStackTrace() {
+    const obj = {};
+    Error.captureStackTrace(obj, getStackTrace);
+    return obj.stack;
+  }
+
+  function isUserPause(stackTrace) {
+    // DPlayer uses a togglePlay method when user clicks the play/pause button
+    // Also check for keyboard shortcut handlers
+    return (
+      stackTrace.includes("togglePlay") ||
+      stackTrace.includes("onPlayBtnClick") ||
+      stackTrace.includes("keydown")
+    );
+  }
+
   function patchPlayer() {
-    if (window.player && typeof window.player.pause === "function" && !window.player._patched) {
-      const originalPause = window.player.pause.bind(window.player);
-      window.player._patched = true;
+    if (window.player && typeof window.player.pause === "function" && !window.player._keepPlayingPatched) {
+      window.player._keepPlayingPatched = true;
 
       window.player.pause = function () {
-        // If document would be hidden or unfocused, this is an auto-pause
-        // Since we fake hidden/hasFocus, we also check for common patterns
-        const stack = new Error().stack || "";
-        const isAutoPause =
-          stack.includes("visibilitychange") ||
-          stack.includes("blur") ||
-          stack.includes("hidden") ||
-          stack.includes("onHide") ||
-          stack.includes("pauseOnHidden");
-
-        if (isAutoPause) {
-          console.log("[Missav Keep Playing] Blocked player auto-pause.");
+        const stack = getStackTrace();
+        if (isUserPause(stack)) {
+          // User explicitly clicked pause - use the underlying media element
+          console.log("[Missav Keep Playing] Manual pause allowed.");
+          if (window.player.media && typeof window.player.media.pause === "function") {
+            window.player.media.pause();
+          }
           return;
         }
-
-        // Allow manual pause (user clicking pause button, pressing space, etc.)
-        console.log("[Missav Keep Playing] Allowing manual pause.");
-        return originalPause();
+        // Auto-pause triggered by visibility/blur - block it
+        console.log("[Missav Keep Playing] Blocked auto-pause.");
+        return;
       };
 
       console.log("[Missav Keep Playing] Player pause() overridden.");
     }
   }
 
-  // Poll for window.player since it's created dynamically
+  // Poll for window.player since it's created dynamically after page load
   const playerCheckInterval = setInterval(function () {
     patchPlayer();
-    if (window.player && window.player._patched) {
+    if (window.player && window.player._keepPlayingPatched) {
       clearInterval(playerCheckInterval);
     }
   }, 500);
 
-  // Stop checking after 60 seconds
+  // Stop checking after 120 seconds
   setTimeout(function () {
     clearInterval(playerCheckInterval);
-  }, 60000);
+  }, 120000);
 
-  // ============================================
-  // METHOD 5: Patch native video.pause() as fallback
-  // ============================================
-  function patchVideoElement(video) {
-    if (video._patched) return;
-    video._patched = true;
-
-    const originalPause = video.pause.bind(video);
-
-    video.pause = function () {
-      const stack = new Error().stack || "";
-      const isAutoPause =
-        stack.includes("visibilitychange") ||
-        stack.includes("blur") ||
-        stack.includes("hidden") ||
-        stack.includes("pauseOnHidden");
-
-      if (isAutoPause && !video.paused) {
-        console.log("[Missav Keep Playing] Blocked video element auto-pause.");
-        return;
-      }
-      return originalPause();
-    };
-  }
-
-  function observeVideos() {
-    document.querySelectorAll("video").forEach(patchVideoElement);
-
-    const observer = new MutationObserver(function (mutations) {
-      mutations.forEach(function (mutation) {
-        mutation.addedNodes.forEach(function (node) {
-          if (node.nodeName === "VIDEO") patchVideoElement(node);
-          if (node.querySelectorAll) {
-            node.querySelectorAll("video").forEach(patchVideoElement);
-          }
-        });
-      });
-    });
-
-    observer.observe(document.documentElement || document.body, {
-      childList: true,
-      subtree: true,
-    });
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", observeVideos);
-  } else {
-    observeVideos();
-  }
-
-  console.log("[Missav Keep Playing] Extension active - videos will keep playing in background");
+  console.log("[Missav Keep Playing] Active in MAIN world - videos will keep playing in background");
 })();

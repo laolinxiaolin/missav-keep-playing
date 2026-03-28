@@ -1,9 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Missav Keep Playing",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Prevents videos on missav.ai from auto-pausing when the browser window loses focus",
-  "permissions": ["scripting"],
   "host_permissions": [
     "*://missav.ai/*",
     "*://*.missav.ai/*",
@@ -32,7 +31,8 @@
       ],
       "js": ["content.js"],
       "run_at": "document_start",
-      "all_frames": true
+      "all_frames": true,
+      "world": "MAIN"
     }
   ],
   "icons": {
