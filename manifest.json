@@ -1,13 +1,35 @@
 {
   "manifest_version": 3,
-  "name": "Missal Keep Playing",
-  "version": "1.0.0",
-  "description": "Prevents videos on missal.ai from auto-pausing when the browser window loses focus",
+  "name": "Missav Keep Playing",
+  "version": "1.1.0",
+  "description": "Prevents videos on missav.ai from auto-pausing when the browser window loses focus",
   "permissions": ["scripting"],
-  "host_permissions": ["*://missal.ai/*", "*://*.missal.ai/*", "*://missal.ws/*", "*://*.missal.ws/*"],
+  "host_permissions": [
+    "*://missav.ai/*",
+    "*://*.missav.ai/*",
+    "*://missav.ws/*",
+    "*://*.missav.ws/*",
+    "*://missav.com/*",
+    "*://*.missav.com/*",
+    "*://missav.live/*",
+    "*://*.missav.live/*",
+    "*://thisav.com/*",
+    "*://*.thisav.com/*"
+  ],
   "content_scripts": [
     {
-      "matches": ["*://missal.ai/*", "*://*.missal.ai/*", "*://missal.ws/*", "*://*.missal.ws/*"],
+      "matches": [
+        "*://missav.ai/*",
+        "*://*.missav.ai/*",
+        "*://missav.ws/*",
+        "*://*.missav.ws/*",
+        "*://missav.com/*",
+        "*://*.missav.com/*",
+        "*://missav.live/*",
+        "*://*.missav.live/*",
+        "*://thisav.com/*",
+        "*://*.thisav.com/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_start",
       "all_frames": true
